@@ -1,0 +1,132 @@
+{
+---------------------------------------------------------------------------------------------------
+    Filename:       file.image.bmp.spin2
+    Description:    MS Windows BMP image file i/o
+    Author:         Jesse Burt
+    Started:        Apr 21, 2021
+    Updated:        Jun 28, 2025
+    Copyright (c) 2025 - See end of file for terms of use.
+---------------------------------------------------------------------------------------------------
+}
+
+{Spin2_v51}
+
+con
+
+    ' BMP header structure      ' offset (dec)
+    struct bmp_header_s( ...
+        word hdr_magic, ...     ' 0
+        long size, ...          ' 2
+        word app_spec1, ...     ' 6
+        word app_spec2, ...     ' 8
+        long img_start, ...     ' 10
+        long hdr_sz, ...        ' 14
+        long width, ...         ' 18
+        long height, ...        ' 22
+        word color_planes, ...  ' 26
+        word bpp, ...           ' 28
+        long comp_method, ...   ' 30
+        long img_sz, ...        ' 34
+        long hres, ...          ' 38
+        long vres, ...          ' 42
+        long pal_colors, ...    ' 46
+        long pal_colors_imp, ...' 50
+        long p_bmp, ...         ' pointer to the bitmap file
+        long last_row )         ' not part of header; points to start of last row of the image
+
+
+    ' header magic value
+    WINBMPID            = $4D42                 ' "BM"
+
+
+    ' Compression types
+    BI_RGB              = 0
+    BI_RLE8             = 1
+    BI_RLE4             = 2
+    BI_BITFIELDS        = 3
+    BI_JPEG             = 4
+    BI_PNG              = 5
+    BI_ALPHABITFIELDS   = 6
+    BI_CMYK             = 11
+    BI_CMYKRLE8         = 12
+    BI_CMYKRLE4         = 13
+
+
+var
+
+    bmp_header_s    header                      ' internal BMP header storage
+
+
+pub null()
+' This is not a top-level object
+
+
+pub header_valid(): f
+' Flag indicating header magic value is valid
+'   Returns:    true (-1) or false (0)
+    return (header.hdr_magic == WINBMPID)
+
+
+pub read(p_bm)
+' Read BMP header data from RAM
+'   p_bm:   pointer to bitmap data
+    bytemove(@header, p_bm, sizeof(header) ) 
+    header.p_bmp := p_bm
+    header.last_row := (header.img_start+header.img_sz)-(header.width * (header.bpp/8))
+
+
+pub readto(p_bm, ^bmp_header_s dest)
+' Read BMP header data from RAM
+'   p_bm:   pointer to bitmap data
+'   dest:   pointer to BMP header structure
+    bytemove([dest], p_bm, sizeof(dest) )
+    dest.p_bmp := p_bm
+    dest.last_row := (dest.img_start+dest.img_sz)-(dest.width * (dest.bpp/8))
+
+
+pub height(): p
+' Get the image's height
+'   Returns:    pixels
+    return header.height
+
+
+pub imagedata_start(): p
+' Get the start of image data
+'   Returns:    hub RAM address of image data start
+    return header.p_bmp + header.img_start
+
+
+pub width(): p
+' Get the image's width
+'   Returns:    pixels
+    return header.width
+
+
+con #-1, BOTTOM_UP, TOP_DOWN
+pub row_order(): o
+' Get the row order of the bitmap
+'   Returns:
+'       BOTTOM_UP (-1): bottom to top pixel order
+'       TOP_DOWN (0):   top to bottom pixel order
+    return ( header.height < 0 )                ' negative height = bottom-up
+
+dat
+{
+Copyright 2025 Jesse Burt
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+}
+
