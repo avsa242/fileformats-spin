@@ -8,7 +8,7 @@ This is a P8X32A/Propeller, P2X8C4M64P/Propeller 2 collection of various file fo
 
 ## Salient Features
 
-* Image files: BMP
+* Image files: BMP (DIB v5 headers)
 
 
 ## Requirements

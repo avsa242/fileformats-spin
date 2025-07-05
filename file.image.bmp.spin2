@@ -4,7 +4,7 @@
     Description:    MS Windows BMP image file i/o
     Author:         Jesse Burt
     Started:        Apr 21, 2021
-    Updated:        Jun 28, 2025
+    Updated:        Jul 5, 2025
     Copyright (c) 2025 - See end of file for terms of use.
 ---------------------------------------------------------------------------------------------------
 }
@@ -13,30 +13,63 @@
 
 con
 
-    ' BMP header structure      ' offset (dec)
+    ' BMP header structure (14 bytes)           ' offset (dec)
+    BMP_HEADER_SZ   = 14
     struct bmp_header_s( ...
-        word hdr_magic, ...     ' 0
-        long size, ...          ' 2
-        word app_spec1, ...     ' 6
-        word app_spec2, ...     ' 8
-        long img_start, ...     ' 10
-        long hdr_sz, ...        ' 14
-        long width, ...         ' 18
-        long height, ...        ' 22
-        word color_planes, ...  ' 26
-        word bpp, ...           ' 28
-        long comp_method, ...   ' 30
-        long img_sz, ...        ' 34
-        long hres, ...          ' 38
-        long vres, ...          ' 42
-        long pal_colors, ...    ' 46
-        long pal_colors_imp, ...' 50
-        long p_bmp, ...         ' pointer to the bitmap file
-        long last_row )         ' not part of header; points to start of last row of the image
+        word hdr_magic, ...                     ' 0..1
+        long size, ...                          ' 2..5
+        word app_spec1, ...                     ' 6..7
+        word app_spec2, ...                     ' 8..9
+        long img_start)                         ' 10..13
+
+    ' DIB header (BITMAPV5HEADER - 92)
+    BITMAPV5HEADER_SZ   = 92
+    struct dib_bmv5header_s( ...
+        long hdr_sz, ...                        ' 14..17
+        long width, ...                         ' 18..21
+        long height, ...                        ' 22..25
+        word color_planes, ...                  ' 26..27
+        word bpp, ...                           ' 28..29
+        long comp_method, ...                   ' 30..33
+        long img_sz, ...                        ' 34..37
+        long hres, ...                          ' 38..41
+        long vres, ...                          ' 42..45
+        long pal_colors, ...                    ' 46..49
+        long pal_colors_imp, ...                ' 50..53
+        long red_bitmask, ...                   ' 54..57
+        long green_bitmask, ...                 ' 58..61
+        long blue_bitmask, ...                  ' 62..65
+        long alpha_bitmask, ...                 ' 66..69
+        long colorspace_type, ...               ' 70..73
+        long colorspace_endpoints, ...          ' 74..77
+        long red_gamma, ...                     ' 78..81
+        long green_gamma, ...                   ' 82..85
+        long blue_gamma, ...                    ' 86..89
+        long intent, ...                        ' 90..93
+        long icc_profile_data, ...              ' 94..97
+        long icc_profile_sz, ...                ' 98..101
+        long reserved2, ...                     ' 102..105
+        long p_bmp, ...                         ' pointer to the BMP file in RAM
+        long last_row )                         ' not part of header; points to start of
+                                                '   last row of the image
+
+    struct bmp_dibv5header_s(...
+        bmp_header_s        bmp, ...
+        dib_bmv5header_s    dib)
 
 
     ' header magic value
     WINBMPID            = $4D42                 ' "BM"
+
+    ' header versions
+    BITMAPCOREHEADER    = 1
+    BITMAPINFOHEADER    = 2
+    BITMAPV4HEADER      = 4
+    BITMAPV5HEADER      = 5
+
+
+    ' colorspace types
+    BGRS                = $73_52_47_42          ' "BGRs" in LE
 
 
     ' Compression types
@@ -54,52 +87,111 @@ con
 
 var
 
-    bmp_header_s    header                      ' internal BMP header storage
+    bmp_dibv5header_s   header                  ' internal BMP header storage
 
 
 pub null()
 ' This is not a top-level object
 
 
+pub alpha_mask(): m
+' Get alpha (transparency/opacity) channel mask
+'   Returns: 32-bit mask
+    return header.dib.alpha_bitmask
+
+
+pub blue_mask(): m
+' Get blue channel mask
+'   Returns: 32-bit mask
+    return header.dib.blue_bitmask
+
+
+pub bpp(): b
+' Get image color depth
+'   Returns:    bits per pixel
+    return header.dib.bpp
+
+
+pub bytes_per_line(): b
+' Get image bytes per line
+'   Returns:    bytes
+    return header.dib.width * (header.dib.bpp / 8)
+
+
+pub color_profile(): p
+' Get image color profile/colorspace type
+'   Returns:    4-character string (not zero-terminated)
+    return header.dib.colorspace_type
+
+
+pub green_mask(): m
+' Get red channel mask
+'   Returns: 32-bit mask
+    return header.dib.green_bitmask
+
+
 pub header_valid(): f
 ' Flag indicating header magic value is valid
 '   Returns:    true (-1) or false (0)
-    return (header.hdr_magic == WINBMPID)
+    return (header.bmp.hdr_magic == WINBMPID)
 
 
-pub read(p_bm)
+pub header_version(): v
+' Get DIB header version
+'   Returns:    version number on success
+'               negative numbers on failure
+    case header.dib.hdr_sz
+        12:
+            return BITMAPCOREHEADER
+        40:
+            return BITMAPINFOHEADER
+        108:
+            return BITMAPV4HEADER
+        124:
+            return BITMAPV5HEADER
+        other:
+            return -1                           ' unknown
+
+
+pub read(p_bm) | p, hsz
 ' Read BMP header data from RAM
 '   p_bm:   pointer to bitmap data
-    bytemove(@header, p_bm, sizeof(header) ) 
-    header.p_bmp := p_bm
-    header.last_row := (header.img_start+header.img_sz)-(header.width * (header.bpp/8))
+    bytemove(@header.bmp, p_bm, BMP_HEADER_SZ)
+    p := p_bm
+    p += BMP_HEADER_SZ
+    hsz := long[p]
+    case hsz
+        12:                                     ' BITMAPCOREHEADER
+            'TODO
+        40:                                     ' BITMAPINFOHEADER
+            'TODO
+        108:                                    ' BITMAPV4HEADER
+            'TODO
+        124:                                    ' BITMAPV5HEADER
+            bytemove(@header.dib, p, sizeof(header.dib) )
+            header.dib.p_bmp := p_bm
+            header.dib.last_row := (header.bmp.img_start+header.dib.img_sz) - bytes_per_line()
 
 
-pub readto(p_bm, ^bmp_header_s dest)
-' Read BMP header data from RAM
-'   p_bm:   pointer to bitmap data
-'   dest:   pointer to BMP header structure
-    bytemove([dest], p_bm, sizeof(dest) )
-    dest.p_bmp := p_bm
-    dest.last_row := (dest.img_start+dest.img_sz)-(dest.width * (dest.bpp/8))
+pub red_mask(): m
+' Get red channel mask
+'   Returns: 32-bit mask
+    return header.dib.red_bitmask
 
 
 pub height(): p
 ' Get the image's height
 '   Returns:    pixels
-    return header.height
+    return header.dib.height
 
 
 pub imagedata_start(): p
 ' Get the start of image data
 '   Returns:    hub RAM address of image data start
-    return header.p_bmp + header.img_start
-
-
-pub width(): p
-' Get the image's width
-'   Returns:    pixels
-    return header.width
+    if ( row_order() == BOTTOM_UP )
+        return (header.dib.p_bmp + header.dib.last_row)
+    else
+        return (header.bmp.img_start + header.dib.p_bmp)
 
 
 con #-1, BOTTOM_UP, TOP_DOWN
@@ -108,7 +200,14 @@ pub row_order(): o
 '   Returns:
 '       BOTTOM_UP (-1): bottom to top pixel order
 '       TOP_DOWN (0):   top to bottom pixel order
-    return ( header.height < 0 )                ' negative height = bottom-up
+    return ( header.dib.height > 0 )            ' positive height = bottom-up
+
+
+pub width(): p
+' Get the image's width
+'   Returns:    pixels
+    return header.dib.width
+
 
 dat
 {
