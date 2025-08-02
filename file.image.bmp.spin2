@@ -194,12 +194,12 @@ pub imagedata_start(): p
         return (header.bmp.img_start + header.dib.p_bmp)
 
 
-con #-1, BOTTOM_UP, TOP_DOWN
+con #-1, BOTTOM_UP, #1, TOP_DOWN
 pub row_order(): o
 ' Get the row order of the bitmap
 '   Returns:
 '       BOTTOM_UP (-1): bottom to top pixel order
-'       TOP_DOWN (0):   top to bottom pixel order
+'       TOP_DOWN (1):   top to bottom pixel order
     return ( header.dib.height > 0 )            ' positive height = bottom-up
 
 
