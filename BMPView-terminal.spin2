@@ -71,12 +71,7 @@ pub main() | m, f, rgb24, x, y, i, fp, lc
     libc.fread(@bmp.header.dib, bmp.BITMAPV5HEADER_SZ, 1, f)
 
     repeat
-        ' make sure we start at the bottom or the top of the image data, depending on how it's stored
-        if ( bmp.row_order() == bmp.BOTTOM_UP )
-            fp := bmp.header.bmp.img_start + bmp.header.dib.img_sz
-        else
-            fp := bmp.header.bmp.img_start
-
+        fp := bmp.imagedata_start()             ' point to the start of the image data
         ser.clear()
         repeat TERM_HEIGHT with y
             ' read a line of data from the image

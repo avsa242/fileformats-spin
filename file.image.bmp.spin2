@@ -4,7 +4,7 @@
     Description:    MS Windows BMP image file i/o
     Author:         Jesse Burt
     Started:        Apr 21, 2021
-    Updated:        Jul 5, 2025
+    Updated:        Aug 2, 2025
     Copyright (c) 2025 - See end of file for terms of use.
 ---------------------------------------------------------------------------------------------------
 }
@@ -185,13 +185,22 @@ pub height(): p
     return header.dib.height
 
 
-pub imagedata_start(): p
-' Get the start of image data
+pub imagedata_start_ram(): p
+' Get the start of image data (BMP embedded in RAM)
 '   Returns:    hub RAM address of image data start
     if ( row_order() == BOTTOM_UP )
         return (header.dib.p_bmp + header.dib.last_row)
     else
         return (header.bmp.img_start + header.dib.p_bmp)
+
+
+pub imagedata_start(): p
+' Get the start of image data (BMP loaded from VFS)
+'   Returns:    offset within BMP file of image data start
+    if ( row_order() == BOTTOM_UP )
+        p := header.bmp.img_start + header.dib.img_sz
+    else
+        p := header.bmp.img_start
 
 
 con #-1, BOTTOM_UP, #1, TOP_DOWN
