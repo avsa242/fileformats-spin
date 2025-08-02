@@ -9,7 +9,7 @@
 ---------------------------------------------------------------------------------------------------
 }
 
-{Spin2_v51}
+{Spin2_v45}
 
 con
 
@@ -59,7 +59,7 @@ con
 
 
     ' header magic value
-    WINBMPID            = $4D42                 ' "BM"
+    WINBMPID            = %"BM"
 
     ' header versions
     BITMAPCOREHEADER    = 1
@@ -69,7 +69,7 @@ con
 
 
     ' colorspace types
-    BGRS                = $73_52_47_42          ' "BGRs" in LE
+    BGRS                = %"BGRs"
 
 
     ' Compression types

@@ -27,10 +27,10 @@ con
     SD_DI               = 59
     SD_DO               = 58
 
-    TERM_WIDTH          = 160                   ' your terminal emulator's dimensions
+    TERM_WIDTH          = 300                   ' your terminal emulator's dimensions
     TERM_HEIGHT         = 120
 
-    BMP_WIDTH_MAX       = 160                   ' linebuffer sizing
+    BMP_WIDTH_MAX       = 320                   ' linebuffer sizing
 ' --
 
 
@@ -56,7 +56,7 @@ pub main() | m, f, rgb24, x, y, i, fp, lc
     ser.start()
     ser.clear()
 
-    m := _mount(@"/sd", libc._vfs_open_sdcardx(SD_CLK, SD_CS, SD_DI, SD_DO) )
+    m := libc.mount(@"/sd", libc._vfs_open_sdcardx(SD_CLK, SD_CS, SD_DI, SD_DO) )
     if ( m )
         ser.printf(@"error mounting SD card: %d\n\r", m)
         repeat
@@ -68,7 +68,13 @@ pub main() | m, f, rgb24, x, y, i, fp, lc
 
     ' read the BMP header
     libc.fread(@bmp.header.bmp, bmp.BMP_HEADER_SZ, 1, f)
+    ifnot ( bmp.header_valid() )
+        ser.strln(@"error: invalid BMP file header")
+        libc.fclose(f)
+        libc.umount(@"/sd")
+        repeat
     libc.fread(@bmp.header.dib, bmp.BITMAPV5HEADER_SZ, 1, f)
+
 
     repeat
         fp := bmp.imagedata_start()             ' point to the start of the image data
