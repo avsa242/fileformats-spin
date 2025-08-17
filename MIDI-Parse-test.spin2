@@ -1,0 +1,152 @@
+{
+---------------------------------------------------------------------------------------------------
+    Filename:       MIDI-Parse-test.spin2
+    Description:    MIDI file read/parse test
+    Author:         Jesse Burt
+    Started:        Feb 3, 2025
+    Updated:        Aug 17, 2025
+    Copyright (c) 2025 - See end of file for terms of use.
+---------------------------------------------------------------------------------------------------
+}
+{Spin2_v51}
+
+con
+
+    _clkfreq    = 180_000_000
+    _xtlfreq    = 20_000_000
+
+#include "midi-common.spin2"
+
+obj
+
+    ser:    "com.serial.terminal.ansi" | SER_BAUD=2_000_000
+    midi:   "file.audio.midi"
+    ramio:  "ramio"
+
+
+con struct chunk_hdr_s = midi.chunk_hdr_s
+con struct event_s = midi.event_s
+con struct meta_evt_s = midi.meta_evt_s
+
+dat
+
+    midifile    file "tree.mid"
+
+
+pub main() | chunk_hdr_s hdr, event_s event, meta_evt_s meta_evt, l, t, trk_n
+
+    ser.start()
+    ser.clear()
+    ser.strln(@"started")
+
+    ramio.set_file(@midifile)
+
+    midi.set_iodev(@ramio)
+
+    if ( l := midi.header_valid() )
+        ser.printf(@"MIDI format %d, %d tracks, %d divisions\n\r", ...
+                    midi.this_file.format, ...
+                    midi.this_file.tracks, ...
+                    midi.this_file.divisions)
+    else
+        ser.strln(@"invalid MIDI file")
+        repeat
+
+    trk_n := 0
+    repeat
+        hdr~
+        ramio.rd_block(@hdr, 8)
+'        ser.hexdump(@hdr, 0, 4, sizeof(hdr), sizeof(hdr))
+        if ( hdr.type == midi.TYPE_MTRK )
+            midi.read_mtrk(@hdr)
+            'ser.hexdump(@hdr, 0, 1, 8, 8)
+            ser.printf(@"Mtrk %d length %d\n\r", trk_n, hdr.length)
+            repeat
+                midi.rd_event(@event)
+                if ( event.event_id == $ff )
+                    t := midi.parse_meta_event(@event)
+                    show_meta_event(t)
+                else
+                    t := midi.parse_event(@event)
+                    show_event(t)
+            while (t <> midi.META_TYPE_END)
+            trk_n++
+        else
+            ser.strln(@"END")
+            repeat
+
+
+pub show_meta_event(e)
+
+    case e
+        midi.META_TYPE_SEQ_NR:
+            ser.strln(@" META_TYPE_SEQ_NR")
+        midi.META_TYPE_TEXT:
+            ser.strln(@" META_TYPE_TEXT")
+        midi.META_TYPE_COPYRIGHT:
+            ser.printf(@" META_TYPE_COPYRIGHT: '%s'\n\r", @midi.buffer)
+        midi.META_TYPE_SEQ_TRK_NAME:
+            ser.printf(@" META_TYPE_SEQ_TRK_NAME: '%s'\n\r", @midi.buffer)
+        midi.META_TYPE_INSTR_NAME:
+            ser.strln(@" META_TYPE_INSTR_NAME")
+        midi.META_TYPE_LYRIC:
+            ser.strln(@" META_TYPE_LYRIC")
+        midi.META_TYPE_MARKER:
+            ser.strln(@" META_TYPE_MARKER")
+        midi.META_TYPE_CUEPOINT:
+            ser.strln(@" META_TYPE_CUEPOINT")
+        midi.META_TYPE_MIDI_CH_PRE:
+            ser.strln(@" META_TYPE_MIDI_CH_PRE")
+        midi.META_TYPE_END:
+            ser.strln(@" META_TYPE_END")
+        midi.META_TYPE_SET_TEMPO:
+            ser.strln(@" META_TYPE_SET_TEMPO")
+        midi.META_TYPE_SMPTE_OFFSET:
+            ser.strln(@" META_TYPE_SMPTE_OFFSET")
+        midi.META_TYPE_TIME_SIG:
+            ser.strln(@" META_TYPE_TIME_SIG")
+        midi.META_TYPE_KEY_SIG:
+            ser.strln(@" META_TYPE_KEY_SIG")
+        midi.META_TYPE_SEQ_SPEC_META:
+            ser.strln(@" META_TYPE_SEQ_SPEC_META")
+
+
+pub show_event(e)
+
+    case e & $f0
+        EVT_NOTE_OFF:
+            ser.strln(@" NOTE OFF")
+        EVT_NOTE_ON:
+            ser.strln(@" NOTE ON")
+        EVT_CTRL_CHANGE:
+            ser.strln(@" CTRL_CHANGE")
+        EVT_PROG_CHANGE:
+            ser.strln(@" PROG_CHANGE")
+        EVT_PITCHBEND_CHANGE:
+            ser.strln(@" PITCHBEND_CHANGE")
+        EVT_POLY_KEY_PRESS:
+            ser.strln(@" POLY_KEY_PRESS")
+        other:
+            ser.printf(@" UNKNOWN EVENT %x\n\r", e)
+
+
+dat
+{
+Copyright 2025 Jesse Burt
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+}
+
