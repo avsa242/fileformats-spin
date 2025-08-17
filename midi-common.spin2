@@ -1,0 +1,80 @@
+{
+---------------------------------------------------------------------------------------------------
+    Filename:       midi-common.spin2
+    Description:    Musical Instrument Digital Interface common code
+    Author:         Jesse Burt
+    Started:        Feb 3, 2025
+    Updated:        Aug 14, 2025
+    Copyright (c) 2025 - See end of file for terms of use.
+---------------------------------------------------------------------------------------------------
+}
+
+con
+
+    ' channel voice messages
+    EVT_NOTE_OFF        = $80
+    EVT_NOTE_ON         = $90
+    EVT_POLY_KEY_PRESS  = $a0
+    EVT_CTRL_CHANGE     = $b0
+    EVT_PROG_CHANGE     = $c0
+    EVT_CHANNEL_PRESS   = $d0
+    EVT_PITCHBEND_CHANGE= $e0
+
+    ' channel mode messages
+    EVT_CHAN_MODE       = $c0
+
+
+    ' system common messages
+    SYS_EX              = $f0
+    TIMECODE_QUART_FRM  = $f1
+    SONG_POS_PTR        = $f2
+    SONG_SELECT         = $f3
+    UNDEF_4             = $f4
+    UNDEF_5             = $f5
+    TUNE_REQ            = $f6
+    END_EX              = $f7
+    SYSEX_UNIVERSAL_NRT = $7e
+    SYSEX_UNIVERSAL_RT  = $7f
+
+
+    ' system real-time messages
+    TIMING_CLK          = $f8
+    UNDEF_9             = $f9
+    START_SEQ           = $fa
+    CONT_STOPPED_SEQ    = $fb
+    STOP_SEQ            = $fc
+    UNDEF_D             = $fd
+    ACTIVE_SENSE        = $fe
+    RESET_RCVRS         = $ff
+
+
+pri note2freq(n): f
+' Convert MIDI note number to frequency
+'   n:          note number
+'   Returns:    frequency in Hz (int)
+
+    '440*(2^((69-69)/12))
+    return round( 440.0 *. (__builtin_powf(2.0, ( (float(n) -. 69.0) /. 12.0) ) ) )
+
+
+dat
+{
+Copyright 2025 Jesse Burt
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+}
+
+

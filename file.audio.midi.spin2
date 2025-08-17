@@ -1,0 +1,459 @@
+{
+---------------------------------------------------------------------------------------------------
+    Filename:       file.audio.midi.spin2
+    Description:    Musical Instrument Digital Interface file parsing, I/O
+    Author:         Jesse Burt
+    Started:        Feb 3, 2025
+    Updated:        Aug 14, 2025
+    Copyright (c) 2025 - See end of file for terms of use.
+---------------------------------------------------------------------------------------------------
+}
+
+{Spin2_v51}
+con
+
+    %interface blkio_i(
+        pub rd_block(p_dest, len)
+        pub rd_byte(): b
+        pub rd_long(): l
+        pub rd_word(): w
+        pub wr_block(p_src, len)
+        pub wr_byte(b)
+        pub wr_long(l)
+        pub wr_word(w)
+        pub set_file(f)
+        pub rd_ptr(): p
+        pub wr_ptr(): p
+    )
+
+con
+
+    TYPE_MTHD   = %"MThd"
+    TYPE_MTRK   = %"MTrk"
+
+    struct chunk_hdr_s(...
+        long type, ...
+        long length)
+
+    struct event_s(...
+        long delta, ...
+        byte event_id, ...
+        long length)
+
+    struct meta_evt_s(...
+        byte type, ...
+        long length)    'xxx maybe long p_data too?
+
+    struct midifile_s(...
+        long tempo, ...
+        long smpte_fps, smpte_tpf, ...
+        word format, ...
+        word tracks, ...
+        word divisions)
+
+
+    NOTE_OFF                = $80
+    NOTE_ON                 = $90
+    PROG_CHANGE             = $c0
+
+
+    EVENT_META              = $ff
+    META_TYPE_SEQ_NR        = $00
+    META_TYPE_TEXT          = $01
+    META_TYPE_COPYRIGHT     = $02
+    META_TYPE_SEQ_TRK_NAME  = $03
+    META_TYPE_INSTR_NAME    = $04
+    META_TYPE_LYRIC         = $05
+    META_TYPE_MARKER        = $06
+    META_TYPE_CUEPOINT      = $07
+    META_TYPE_MIDI_CH_PRE   = $20
+    META_TYPE_END           = $2f
+    META_TYPE_SET_TEMPO     = $51
+    META_TYPE_SMPTE_OFFSET  = $54
+    META_TYPE_TIME_SIG      = $58
+    META_TYPE_KEY_SIG       = $59
+    META_TYPE_SEQ_SPEC_META = $7f
+
+' temporary, for debugging output
+obj ser: "com.serial.terminal.ansi" | RX_PIN=34, TX_PIN=36, SER_BAUD=2_000_000
+
+var
+
+    ^blkio_i    iodev                           ' instance of the block I/O interface
+
+    byte buffer[100]
+
+    midifile_s  this_file
+
+
+pub set_iodev(^blkio_i p_obj)
+' Set file I/O driver
+'   p_obj:  pointer to OBJ containing the API defined in the blkio interface above
+    [iodev] := [p_obj]
+    ser.start()
+    ser.clear()
+    ser.strln(@"debug started")
+
+
+pub delta2usec(dt): s
+' Convert delta-time to microseconds
+    return dt * this_file.tempo / this_file.divisions
+
+
+pub delta2msec(dt): s
+' Convert delta-time to milliseconds
+    return delta2usec(dt) / 1000
+
+
+pub header_valid(): s | chunk_hdr_s hdr
+' Read the MIDI file header
+'   Returns:
+'       length field on success
+'       zero on failure
+    s := 0
+
+    iodev.rd_block(@hdr, 8)
+    if ( hdr.type == TYPE_MTHD )
+        parse_mthd(@hdr)
+        return hdr.length
+
+
+pub parse_mthd(^chunk_hdr_s hdr)
+' Parse Mthd header
+'   hdr:    pointer to chunk header structure
+    hdr.length := swaplong(hdr.length)
+    this_file.format := iodev.rd_word()
+    this_file.tracks := iodev.rd_word()
+    parse_div( iodev.rd_word() )
+
+
+pub parse_div(dw)
+' Parse divisions
+'   dw: division word
+    if ( dw.[15] )                              ' SMPTE
+        this_file.smpte_fps := dw.[8 addbits 6]
+        this_file.smpte_tpf := dw.byte[0]
+    else                                        ' ticks per quarter-note
+        this_file.divisions := dw & $7fff
+
+
+pub read_mtrk(^chunk_hdr_s hdr): l
+' Read Mtrk chunk
+'   hdr:    pointer to chunk header structure
+    hdr.length := swaplong(hdr.length)
+    return hdr.length
+
+
+pub rd_event(^event_s event)
+' Read event
+'   event:  pointer to event_s structure
+    event.delta := delta2usec( rd_vlq() )
+    event.event_id := iodev.rd_byte()
+    ser.printf(@"rd_event(): delta=%d event_id=%x\n\r", event.delta, event.event_id)
+
+
+pub parse_event(^event_s event): t
+' Parse MIDI event
+'   event:  pointer to event structure
+'    event.delta := delta2usec( rd_vlq() )
+'    event.event_id := iodev.rd_byte()
+'    ser.printf(@"parse_event(): delta=%d event_id=%x\n\r", event.delta, event.event_id)
+    case event.event_id & $f0
+        EVT_NOTE_OFF:
+            parse_note_off(event.event_id & $0f)
+        EVT_NOTE_ON:
+            parse_note_on(event.event_id & $0f)
+        EVT_CTRL_CHANGE:
+            parse_ctrl_change(event.event_id & $0f)
+        EVT_PROG_CHANGE:
+            parse_prog_change(event.event_id & $0f)
+        EVT_PITCHBEND_CHANGE:
+            parse_pitchbend_change(event.event_id & $0f)
+        other:
+
+    return event.event_id
+
+
+pub parse_ctrl_change(ch) | ctl, val
+' Parse controller change event
+'   ch: channel
+    ctl := iodev.rd_byte()                            ' change controller to...
+    val := iodev.rd_byte()                            '   value
+
+
+pub parse_meta_event(^meta_evt_s meta_evt): t | p
+' Parse a meta event
+'   t:  meta event type
+    meta_evt.type := iodev.rd_byte()
+    meta_evt.length := rd_vlq()
+    bytefill(@buffer, 0, 100)
+    ser.printf(@"parse_meta_event(): type=%x len=%d\n\r", meta_evt.type, meta_evt.length)
+    case meta_evt.type
+        META_TYPE_SEQ_NR:
+            iodev.rd_block(@buffer, meta_evt.length)
+        META_TYPE_TEXT:
+            iodev.rd_block(@buffer, meta_evt.length)
+        META_TYPE_COPYRIGHT:
+            iodev.rd_block(@buffer, meta_evt.length)
+            ser.printf(@" META_TYPE_COPYRIGHT: '%s'\n\r", @buffer)
+        META_TYPE_SEQ_TRK_NAME:
+            iodev.rd_block(@buffer, meta_evt.length)
+            ser.printf(@" META_TYPE_SEQ_TRK_NAME: '%s'\n\r", @buffer)
+        META_TYPE_INSTR_NAME:
+            iodev.rd_block(@buffer, meta_evt.length)
+        META_TYPE_LYRIC:
+            iodev.rd_block(@buffer, meta_evt.length)
+        META_TYPE_MARKER:
+            iodev.rd_block(@buffer, meta_evt.length)
+        META_TYPE_CUEPOINT:
+            iodev.rd_block(@buffer, meta_evt.length)
+        META_TYPE_MIDI_CH_PRE:
+            iodev.rd_block(@buffer, meta_evt.length)
+        META_TYPE_END:
+            iodev.rd_block(@buffer, meta_evt.length)
+        META_TYPE_SET_TEMPO:
+            'if ( meta_evt.length <> 3 ) ' xxx this was showing a warning over serial/debug
+            parse_tempo()
+        META_TYPE_SMPTE_OFFSET:
+            iodev.rd_block(@buffer, meta_evt.length)
+        META_TYPE_TIME_SIG:
+            parse_time_sig()
+        META_TYPE_KEY_SIG:
+            iodev.rd_block(@buffer, meta_evt.length)
+        META_TYPE_SEQ_SPEC_META:
+            iodev.rd_block(@buffer, meta_evt.length)
+
+    return meta_evt.type
+
+
+pub parse_note_off(ch) | k, v
+' Parse note off event
+'   ch: channel
+    k := iodev.rd_byte()                              ' note #
+    v := iodev.rd_byte()                              ' value
+
+
+pub parse_note_on(ch) | k, v
+' Parse note on event
+'   ch: channel
+    k := iodev.rd_byte()
+    v := iodev.rd_byte()
+
+
+pub parse_pitchbend_change(ch) | p
+' Parse pitchbend change event
+'   ch: channel
+    p := iodev.rd_byte()                              ' new pitchbend value
+    p |= (iodev.rd_byte() << 7)
+
+
+pub parse_prog_change(ch) | prg
+' Parse program change event
+'   ch: channel
+    prg := iodev.rd_byte()
+
+
+pub parse_tempo() | t
+' Parse tempo event
+    t := 0
+    iodev.rd_block(@t, 3)
+    t := swap24(t)
+    this_file.tempo := t
+
+
+pub parse_time_sig() | nn, dd, cc, bb
+' Parse time-signature event
+    nn := iodev.rd_byte()
+    dd := iodev.rd_byte()
+    cc := iodev.rd_byte()
+    bb := iodev.rd_byte()
+
+
+pub write_controller_change(ch, c, v, dt=0)
+'   ch:     channel
+'   c:      controller ID
+'   v:      new value
+'   dt:     delta-time (optional; default is 0)
+    wr_vlq(dt)
+    iodev.wr_byte(EVT_CTRL_CHANGE | ch)
+    iodev.wr_byte(c)
+    iodev.wr_byte(v)
+
+
+pub write_copyright(p_src, len, dt=0)
+' Write a copyright meta event
+'   p_src:  pointer to copyright text string
+'   len:    length of string
+'   dt:     delta-time (optional; default is 0)
+    write_meta_event(dt)
+    iodev.wr_byte(META_TYPE_COPYRIGHT)
+    wr_vlq(len)
+    iodev.wr_block(p_src, len)
+
+
+pub write_header(len, fmt, trks, divs)
+' Write MIDI file header
+'   len:    length of header data
+'   fmt:    format
+'   trks:   number of tracks
+'   divs:   number of divisions
+    iodev.wr_long(TYPE_MTHD)
+    iodev.wr_long(swaplong(len))
+    iodev.wr_word(fmt)
+    iodev.wr_word(trks)
+    iodev.wr_word(divs)
+
+
+pub write_meta_event(dt)
+' Write meta event
+'   dt: delta time
+    wr_vlq(dt)
+    iodev.wr_byte(EVENT_META)
+
+
+pub write_mtrk(len)
+' Write Mtrk chunk header
+'   len:    MTrk chunk length
+    iodev.wr_long(TYPE_MTRK)
+    iodev.wr_long(swaplong(len))
+
+
+pub write_note_off(ch, k, v, dt=0)
+' Write note off event
+'   ch:     MIDI channel ID (0..15)
+'   k:      key
+'   v:      velocity
+'   dt:     delta-time (optional; default is 0)
+    wr_vlq(dt)
+    iodev.wr_byte(NOTE_OFF | ch)
+    iodev.wr_byte(k)
+    iodev.wr_byte(v)
+
+
+pub write_note_on(ch, k, v, dt=0)
+' Write note on event
+'   ch:     MIDI channel ID (0..15)
+'   k:      key
+'   v:      velocity
+'   dt:     delta-time (optional; default is 0)
+    wr_vlq(dt)
+    iodev.wr_byte(NOTE_ON | ch)
+    iodev.wr_byte(k)
+    iodev.wr_byte(v)
+
+
+pub write_pitchbend_change(ch, p, dt=0)
+' Write pitchbend change event
+'   ch:     MIDI channel ID (0..15)
+'   p:      new pitch
+'   dt:     delta-time (optional; default is 0)
+    wr_vlq(dt)
+    iodev.wr_byte(EVT_PITCHBEND_CHANGE | ch)
+    iodev.wr_byte(p & $7f)
+    iodev.wr_byte( (p >> 7) & $7f)
+
+
+pub write_prog_change(ch, prg, dt=0)
+' Write program change event
+'   ch:     MIDI channel ID (0..15)
+'   prg:    new program
+'   dt:     delta-time (optional; default is 0)
+    wr_vlq(dt)
+    iodev.wr_byte(PROG_CHANGE | ch)
+    iodev.wr_byte(prg)
+
+
+pub write_set_tempo(t, dt=0)
+' Write set tempo event
+'   t:      new tempo
+'   dt:     delta-time (optional; default is 0)
+    write_meta_event(dt)
+    iodev.wr_byte(META_TYPE_SET_TEMPO)
+
+
+pub write_track_end(dt=0)
+' Write track end meta event
+'   dt:     delta time (optional; default is 0)
+    write_meta_event(dt)
+    iodev.wr_byte(META_TYPE_END)
+
+
+pub write_track_name(p_src, len, dt=0)
+' Write track name event
+'   p_src:  pointer to track name string
+'   len:    length of string
+'   dt:     delta-time (optional; default is 0)
+    write_meta_event(dt)
+    iodev.wr_byte(META_TYPE_SEQ_TRK_NAME)
+    wr_vlq(len)
+    iodev.wr_block(p_src, len)
+
+
+pri rd_vlq(): v | c
+' Read and decode a variable-length quantity from the file
+'   Returns:    decoded/decimal value
+    v := iodev.rd_byte()
+    if ( v & $80 )
+        v &= $7f
+        repeat
+            v := (v << 7) | ( (c := iodev.rd_byte() ) & $7f)
+        while (c & $80)
+
+    return v & $0fff_ffff
+
+
+pri swap24(i): o
+' Swap a 24-bit word's byte order
+    o.byte[0], o.byte[1], o.byte[2] := i.byte[2], i.byte[1], i.byte[0]
+
+
+pri swaplong(i): o
+' Swap a long's byte order
+    o.byte[0], o.byte[1], o.byte[2], o.byte[3] := i.byte[3], i.byte[2], i.byte[1], i.byte[0]
+
+
+pri swapword(i): o
+' Swap a word's byte order
+    o.byte[0], o.byte[1] := i.byte[1], i.byte[0]
+
+
+pri wr_vlq(val) | buffer
+' Write a value encoded as a variable-length quantity to the file
+'   val:    decimal value
+    buffer := val & $7f
+    repeat while ((val >>= 7) > 0)
+        buffer <<= 8
+        buffer |= $80
+        buffer += (val & $7f)
+
+    repeat
+        iodev.wr_byte(buffer)
+        if ( buffer & $80 )
+            buffer >>= 8
+        else
+            quit
+
+
+#include "midi-common.spin2"                    ' use code common to MIDI file and device I/O
+
+
+dat
+{
+Copyright 2025 Jesse Burt
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+}
+
