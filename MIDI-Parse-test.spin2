@@ -15,14 +15,13 @@ con
     _clkfreq    = 180_000_000
     _xtlfreq    = 20_000_000
 
-#include "midi-common.spin2"
 
 obj
 
-    ser:    "com.serial.terminal.ansi" | SER_BAUD=2_000_000
-    midi:   "file.audio.midi"
-    ramio:  "ramio"
-
+    ser:        "com.serial.terminal.ansi" | SER_BAUD=2_000_000
+    midi:       "file.audio.midi"
+    ramio:      "ramio"
+    %anonymous: "midi-common"
 
 con struct chunk_hdr_s = midi.chunk_hdr_s
 con struct event_s = midi.event_s

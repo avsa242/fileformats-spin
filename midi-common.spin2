@@ -48,7 +48,7 @@ con
     RESET_RCVRS         = $ff
 
 
-pri note2freq(n): f
+pub note2freq(n): f
 ' Convert MIDI note number to frequency
 '   n:          note number
 '   Returns:    frequency in Hz (int)
