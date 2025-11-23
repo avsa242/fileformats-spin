@@ -4,7 +4,7 @@
     Description:    MS Windows BMP image file i/o
     Author:         Jesse Burt
     Started:        Apr 21, 2021
-    Updated:        Aug 2, 2025
+    Updated:        Nov 23, 2025
     Copyright (c) 2025 - See end of file for terms of use.
 ---------------------------------------------------------------------------------------------------
 }
@@ -151,6 +151,12 @@ pub header_version(): v
             return BITMAPV5HEADER
         other:
             return -1                           ' unknown
+
+
+pub imagedata_size(): s
+' Get the size of the image data
+'   Returns:    image data size in bytes
+    return header.dib.img_sz
 
 
 pub read(p_bm) | p, hsz
