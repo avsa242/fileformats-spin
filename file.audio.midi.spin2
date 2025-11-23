@@ -28,6 +28,11 @@ con
 
 con
 
+    ' limits
+    BUFFER_SZ   = 100
+
+
+    ' MIDI file metadata and structures
     TYPE_MTHD   = %"MThd"
     TYPE_MTRK   = %"MTrk"
 
@@ -81,7 +86,7 @@ var
 
     ^blkio_i    iodev                           ' instance of the block I/O interface
 
-    byte buffer[100]
+    byte buffer[BUFFER_SZ]
 
     midifile_s  this_file
 
@@ -97,7 +102,7 @@ pub set_iodev(^blkio_i p_obj)
 
 pub delta2usec(dt): s
 ' Convert delta-time to microseconds
-    return dt * this_file.tempo / this_file.divisions
+    return muldiv64(dt, this_file.tempo, this_file.divisions)
 
 
 pub delta2msec(dt): s
@@ -152,24 +157,37 @@ pub rd_event(^event_s event)
     ser.printf(@"rd_event(): delta=%d event_id=%x\n\r", event.delta, event.event_id)
 
 
+var long _event_state
 pub parse_event(^event_s event): t
 ' Parse MIDI event
 '   event:  pointer to event structure
 '    event.delta := delta2usec( rd_vlq() )
 '    event.event_id := iodev.rd_byte()
 '    ser.printf(@"parse_event(): delta=%d event_id=%x\n\r", event.delta, event.event_id)
-    case event.event_id & $f0
-        EVT_NOTE_OFF:
-            parse_note_off(event.event_id & $0f)
-        EVT_NOTE_ON:
-            parse_note_on(event.event_id & $0f)
-        EVT_CTRL_CHANGE:
-            parse_ctrl_change(event.event_id & $0f)
-        EVT_PROG_CHANGE:
-            parse_prog_change(event.event_id & $0f)
-        EVT_PITCHBEND_CHANGE:
-            parse_pitchbend_change(event.event_id & $0f)
-        other:
+    ' is it a status byte?
+    if ( (event.event_id >= $80) and (event.event_id <= $ff) )
+        ser.printf(@"\033[1;34mswitched event state to %0x\033[m\n\r", event.event_id)
+        case event.event_id & $f0
+            EVT_NOTE_OFF:
+                parse_note_off(event.event_id & $0f)
+            EVT_NOTE_ON:
+                parse_note_on(event.event_id & $0f)
+            EVT_CTRL_CHANGE:
+                parse_ctrl_change(event.event_id & $0f)
+            EVT_PROG_CHANGE:
+                parse_prog_change(event.event_id & $0f)
+            EVT_PITCHBEND_CHANGE:
+                parse_pitchbend_change(event.event_id & $0f)
+            other:
+                ser.printf(@"unknown event %x\n\r", event.event_id)
+        _event_state := event.event_id & $f0
+    else
+        case _event_state
+            EVT_CTRL_CHANGE:
+            EVT_NOTE_ON:
+                parse_note_on(event.event_id & $0f)
+            EVT_NOTE_OFF:
+                parse_note_off(event.event_id & $0f)
 
     return event.event_id
 
@@ -177,8 +195,10 @@ pub parse_event(^event_s event): t
 pub parse_ctrl_change(ch) | ctl, val
 ' Parse controller change event
 '   ch: channel
+    ser.str(@"parse_ctrl_change() ")
     ctl := iodev.rd_byte()                            ' change controller to...
     val := iodev.rd_byte()                            '   value
+    ser.printf(@"ctl=%x  val=%x\n\r", ctl, val)
 
 
 pub parse_meta_event(^meta_evt_s meta_evt): t | p
@@ -204,7 +224,7 @@ pub parse_meta_event(^meta_evt_s meta_evt): t | p
         META_TYPE_LYRIC:
             iodev.rd_block(@buffer, meta_evt.length)
         META_TYPE_MARKER:
-            iodev.rd_block(@buffer, meta_evt.length)
+            read_marker(@buffer, meta_evt.length)
         META_TYPE_CUEPOINT:
             iodev.rd_block(@buffer, meta_evt.length)
         META_TYPE_MIDI_CH_PRE:
@@ -219,25 +239,46 @@ pub parse_meta_event(^meta_evt_s meta_evt): t | p
         META_TYPE_TIME_SIG:
             parse_time_sig()
         META_TYPE_KEY_SIG:
-            iodev.rd_block(@buffer, meta_evt.length)
+            parse_key_sig()
         META_TYPE_SEQ_SPEC_META:
             iodev.rd_block(@buffer, meta_evt.length)
 
     return meta_evt.type
 
 
+pub read_marker(p_dest, len)
+
+    iodev.rd_block(p_dest, len <# BUFFER_SZ)
+    ser.printf(@"read_marker: '%s'\n\r", p_dest)
+
+    if ( len > BUFFER_SZ )
+        repeat len-BUFFER_SZ
+            iodev.rd_byte()
+
+
+pub parse_key_sig() | ksig, scl
+
+    ksig := iodev.rd_byte() ' -7..7
+    scl := iodev.rd_byte()  '0: major, 1: minor
+    ser.printf(@"parse_key_sig(): key: %d  scale: %d\n\r", ksig, scl)
+
+
 pub parse_note_off(ch) | k, v
 ' Parse note off event
 '   ch: channel
+    ser.printf(@"parse_note_off(%d) ", ch)
     k := iodev.rd_byte()                              ' note #
     v := iodev.rd_byte()                              ' value
+    ser.printf(@" k=%d v=%d\n\r", k, v)
 
 
 pub parse_note_on(ch) | k, v
 ' Parse note on event
 '   ch: channel
+    ser.printf(@"parse_note_on(%d) ", ch)
     k := iodev.rd_byte()
     v := iodev.rd_byte()
+    ser.printf(@" k=%d v=%d\n\r", k, v)
 
 
 pub parse_pitchbend_change(ch) | p
@@ -259,7 +300,7 @@ pub parse_tempo() | t
     iodev.rd_block(@t, 3)
     t := swap24(t)
     this_file.tempo := t
-
+    ser.printf(@"parse_tempo(): t=%d\n\r", t)
 
 pub parse_time_sig() | nn, dd, cc, bb
 ' Parse time-signature event
@@ -267,7 +308,7 @@ pub parse_time_sig() | nn, dd, cc, bb
     dd := iodev.rd_byte()
     cc := iodev.rd_byte()
     bb := iodev.rd_byte()
-
+    ser.printf(@"parse_time_sig(): nn=%x dd=%x cc=%x bb=%x\n\r", nn, dd, cc, bb)
 
 pub write_controller_change(ch, c, v, dt=0)
 '   ch:     channel
@@ -393,12 +434,14 @@ pri rd_vlq(): v | c
 ' Read and decode a variable-length quantity from the file
 '   Returns:    decoded/decimal value
     v := iodev.rd_byte()
+'    ser.printf(@"vlq %x ", v)
     if ( v & $80 )
         v &= $7f
         repeat
             v := (v << 7) | ( (c := iodev.rd_byte() ) & $7f)
+'            ser.printf(@"%x ", c)
         while (c & $80)
-
+'    ser.printf(@"vlq in dec=%d\n\r", v)
     return v & $0fff_ffff
 
 
