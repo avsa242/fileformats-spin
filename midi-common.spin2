@@ -48,6 +48,109 @@ con
     RESET_RCVRS         = $ff
 
 
+    ' control/mode changes: $bx cc vv (x=channel, cc=controller, vv=value)
+    CT_BANK_SELECT      = $00
+    CT_MODWHEEL         = $01
+    CT_BREATH_CTRL      = $02
+    CT_FOOT_CTRL        = $04
+    CT_PORTAMENTO_TIME  = $05
+    CT_DATAENTRY_MSB    = $06
+    CT_CHANNEL_VOL      = $07
+    CT_BALANCE          = $08
+    CT_PAN              = $0a
+    CT_EXPRESSION       = $0b
+    CT_EFFECT_CTRL1     = $0c
+    CT_EFFECT_CTRL2     = $0d
+    CT_GEN_PURPOSE16    = $10
+    CT_GEN_PURPOSE17    = $11
+    CT_GEN_PURPOSE18    = $12
+    CT_GEN_PURPOSE19    = $13
+    CT_CTRL00_LSB       = $20
+    CT_CTRL01_LSB       = $21
+    CT_CTRL02_LSB       = $22
+    CT_CTRL03_LSB       = $23
+    CT_CTRL04_LSB       = $24
+    CT_CTRL05_LSB       = $25
+    CT_DATAENTRY_LSB    = $26
+    CT_CTRL07_LSB       = $27
+    CT_CTRL08_LSB       = $28
+    CT_CTRL09_LSB       = $29
+    CT_CTRL10_LSB       = $2a
+    CT_CTRL11_LSB       = $2b
+    CT_CTRL12_LSB       = $2c
+    CT_CTRL13_LSB       = $2d
+    CT_CTRL14_LSB       = $2e
+    CT_CTRL15_LSB       = $2f
+    CT_CTRL16_LSB       = $30
+    CT_CTRL17_LSB       = $31
+    CT_CTRL18_LSB       = $32
+    CT_CTRL19_LSB       = $33
+    CT_CTRL20_LSB       = $34
+    CT_CTRL21_LSB       = $35
+    CT_CTRL22_LSB       = $36
+    CT_CTRL23_LSB       = $37
+    CT_CTRL24_LSB       = $38
+    CT_CTRL25_LSB       = $39
+    CT_CTRL26_LSB       = $3a
+    CT_CTRL27_LSB       = $3b
+    CT_CTRL28_LSB       = $3c
+    CT_CTRL29_LSB       = $3d
+    CT_CTRL30_LSB       = $3e
+    CT_CTRL31_LSB       = $3f
+    CT_DAMP_SUS_PEDAL   = $40
+    CT_PORTAMENTO_ONOFF = $41
+    CT_SOSTENUTO_ONOFF  = $42
+    CT_SOFTPEDAL_ONOFF  = $43
+    CT_LEGATO_FOOTSW    = $44
+    CT_HOLD2            = $45
+    CT_SOUND_CTRL1      = $46
+    CT_SOUND_CTRL2      = $47
+    CT_SOUND_CTRL3      = $48
+    CT_SOUND_CTRL4      = $49
+    CT_SOUND_CTRL5      = $4a
+    CT_SOUND_CTRL6      = $4b
+    CT_SOUND_CTRL7      = $4c
+    CT_SOUND_CTRL8      = $4d
+    CT_SOUND_CTRL9      = $4e
+    CT_SOUND_CTRL10     = $4f
+    CT_GENERIC_ONOFF50  = $50
+    CT_GENERIC_ONOFF51  = $51
+    CT_GENERIC_ONOFF52  = $52
+    CT_GENERIC_ONOFF53  = $53
+    CT_PORTAMENTO       = $54
+    ' 55..57 undefined
+    CT_HIRES_VEL_PREFIX = $58
+    ' 59..5a undefined
+    CT_EFFECT1_DEPTH    = $5b
+    CT_EFFECT2_DEPTH    = $5c
+    CT_EFFECT3_DEPTH    = $5d
+    CT_EFFECT4_DEPTH    = $5e
+    CT_EFFECT5_DEPTH    = $5f
+    CT_DATA_INC         = $60
+    CT_DATA_DEC         = $61
+    CT_NRPN_LSB         = $62
+    CT_NRPN_MSB         = $63
+    CT_RPN_LSB          = $64
+    CT_RPN_MSB          = $65
+    ' 66..77 undefined
+    CT_ALL_SOUND_OFF    = $78
+    CT_RESET_ALL_CTRL   = $79
+    CT_LOCAL_ONOFF      = $7a
+    CT_ALL_NOTES_OFF    = $7b
+    CT_OMNI_OFF         = $7c
+    CT_OMNI_ON          = $7d
+    CT_MONO_MODE        = $7e
+    CT_POLY_MODE        = $7f
+
+
+    ' registered parameter numbers
+    RPN_PITCHBEND_SENS  = $00
+    RPN_FINE_TUNE       = $01
+    RPN_COARSE_TUNE     = $02
+    RPN_TUNE_PROG_SEL   = $03
+    RPN_TUNE_BANK_SEL   = $04
+    RPN_NULL            = $7f
+
 pub note2freq(n): f
 ' Convert MIDI note number to frequency
 '   n:          note number
@@ -55,6 +158,21 @@ pub note2freq(n): f
 
     '440*(2^((69-69)/12))
     return round( 440.0 *. (__builtin_powf(2.0, ( (float(n) -. 69.0) /. 12.0) ) ) )
+
+
+pub swap24(i): o
+' Swap a 24-bit word's byte order
+    o.byte[0], o.byte[1], o.byte[2] := i.byte[2], i.byte[1], i.byte[0]
+
+
+pub swaplong(i): o
+' Swap a long's byte order
+    o.byte[0], o.byte[1], o.byte[2], o.byte[3] := i.byte[3], i.byte[2], i.byte[1], i.byte[0]
+
+
+pub swapword(i): o
+' Swap a word's byte order
+    o.byte[0], o.byte[1] := i.byte[1], i.byte[0]
 
 
 dat

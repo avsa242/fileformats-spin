@@ -39,7 +39,6 @@ pub main() | chunk_hdr_s hdr, event_s event, meta_evt_s meta_evt, l, t, trk_n
     ser.strln(@"started")
 
     ramio.set_file(@midifile)
-
     midi.set_iodev(@ramio)
 
     if ( l := midi.header_valid() )
@@ -54,7 +53,7 @@ pub main() | chunk_hdr_s hdr, event_s event, meta_evt_s meta_evt, l, t, trk_n
     trk_n := 0
     repeat
         hdr~
-        ramio.rd_block(@hdr, 8)
+        ramio.rd_block( @hdr, sizeof(chunk_hdr_s) )
 '        ser.hexdump(@hdr, 0, 4, sizeof(hdr), sizeof(hdr))
         if ( hdr.type == midi.TYPE_MTRK )
             midi.read_mtrk(@hdr)
@@ -62,7 +61,7 @@ pub main() | chunk_hdr_s hdr, event_s event, meta_evt_s meta_evt, l, t, trk_n
             ser.printf(@"Mtrk %d length %d\n\r", trk_n, hdr.length)
             repeat
                 midi.rd_event(@event)
-                if ( event.event_id == $ff )
+                if ( event.id == midi.EVENT_META )
                     t := midi.parse_meta_event(@event)
                     show_meta_event(t)
                 else

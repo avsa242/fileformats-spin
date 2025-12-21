@@ -4,7 +4,7 @@
     Description:    Musical Instrument Digital Interface file parsing, I/O
     Author:         Jesse Burt
     Started:        Feb 3, 2025
-    Updated:        Aug 14, 2025
+    Updated:        Dec 21, 2025
     Copyright (c) 2025 - See end of file for terms of use.
 ---------------------------------------------------------------------------------------------------
 }
@@ -24,13 +24,14 @@ con
         pub set_file(f)
         pub rd_ptr(): p
         pub wr_ptr(): p
+        pub set_rd_ptr(p)
     )
 
 con
 
     ' limits
-    BUFFER_SZ   = 100
-
+    BUFFER_SZ       = 100
+    MAX_MIDI_TRACKS = 32
 
     ' MIDI file metadata and structures
     TYPE_MTHD   = %"MThd"
@@ -41,21 +42,36 @@ con
         long length)
 
     struct event_s(...
-        long delta, ...
-        byte event_id, ...
-        long length)
+        long delta, ...                         ' time since last event
+        byte id, ...                            ' [7..4] id, [3..0] channel
+        long length, ...
+        byte param[2])
 
     struct meta_evt_s(...
         byte type, ...
         long length)    'xxx maybe long p_data too?
+
+    struct channel_s(...
+        word rpn, ...
+        word data, ...
+        word freq, ...
+        long pitchbend_range)                   ' float: semitones + max(cents, 99)
 
     struct midifile_s(...
         long tempo, ...
         long smpte_fps, smpte_tpf, ...
         word format, ...
         word tracks, ...
-        word divisions)
+        word divisions, ...
+        channel_s channel[16])
 
+    struct miditrack_s(...
+        long start_pos, ...                     ' track start offset within file
+        long length, ...                        ' track length
+        long cursor, ...                        ' current pointer within track
+        long tick, ...                          ' per-track absolute time
+        event_s event, ...
+        byte end_reached)                       ' end of track flag
 
     NOTE_OFF                = $80
     NOTE_ON                 = $90
@@ -88,6 +104,7 @@ var
 
     byte buffer[BUFFER_SZ]
 
+    miditrack_s track[MAX_MIDI_TRACKS]
     midifile_s  this_file
 
 
@@ -100,14 +117,26 @@ pub set_iodev(^blkio_i p_obj)
     ser.strln(@"debug started")
 
 
-pub delta2usec(dt): s
-' Convert delta-time to microseconds
+pub bpm2tempo(b): t
+' Convert beats per minute (BPM) to tempo (microseconds per quarter note)
+    return 60_000_000/b
+
+
+pub tempo2bpm(t): b
+' Convert tempo (microseconds per quarter note) to beats per minute (BPM)
+    return 60_000_000/t
+
+
+pub ticks2usec(dt): s
+' Convert MIDI ticks to microseconds
+'   NOTE: This function depends on the tempo and divisions value
     return muldiv64(dt, this_file.tempo, this_file.divisions)
 
 
-pub delta2msec(dt): s
-' Convert delta-time to milliseconds
-    return delta2usec(dt) / 1000
+pub ticks2msec(dt): s
+' Convert MIDI ticks to milliseconds
+'   NOTE: This function depends on the tempo and divisions value
+    return ticks2usec(dt) / 1000
 
 
 pub header_valid(): s | chunk_hdr_s hdr
@@ -152,44 +181,44 @@ pub read_mtrk(^chunk_hdr_s hdr): l
 pub rd_event(^event_s event)
 ' Read event
 '   event:  pointer to event_s structure
-    event.delta := delta2usec( rd_vlq() )
-    event.event_id := iodev.rd_byte()
-    ser.printf(@"rd_event(): delta=%d event_id=%x\n\r", event.delta, event.event_id)
+    event.delta := ticks2usec( rd_vlq() )
+    event.id := iodev.rd_byte()
+    ser.printf(@"rd_event(): delta=%d id=%x\n\r", event.delta, event.id)
 
 
 var long _event_state
 pub parse_event(^event_s event): t
 ' Parse MIDI event
 '   event:  pointer to event structure
-'    event.delta := delta2usec( rd_vlq() )
-'    event.event_id := iodev.rd_byte()
-'    ser.printf(@"parse_event(): delta=%d event_id=%x\n\r", event.delta, event.event_id)
+'    event.delta := ticks2usec( rd_vlq() )
+'    event.id := iodev.rd_byte()
+'    ser.printf(@"parse_event(): delta=%d id=%x\n\r", event.delta, event.id)
     ' is it a status byte?
-    if ( (event.event_id >= $80) and (event.event_id <= $ff) )
-        ser.printf(@"\033[1;34mswitched event state to %0x\033[m\n\r", event.event_id)
-        case event.event_id & $f0
+    if ( (event.id >= $80) and (event.id <= $ff) )
+        ser.printf(@"\033[1;34mswitched event state to %0x\033[m\n\r", event.id)
+        case event.id & $f0
             EVT_NOTE_OFF:
-                parse_note_off(event.event_id & $0f)
+                parse_note_off(event.id & $0f)
             EVT_NOTE_ON:
-                parse_note_on(event.event_id & $0f)
+                parse_note_on(event.id & $0f)
             EVT_CTRL_CHANGE:
-                parse_ctrl_change(event.event_id & $0f)
+                parse_ctrl_change(event.id & $0f)
             EVT_PROG_CHANGE:
-                parse_prog_change(event.event_id & $0f)
+                parse_prog_change(event.id & $0f)
             EVT_PITCHBEND_CHANGE:
-                parse_pitchbend_change(event.event_id & $0f)
+                parse_pitchbend_change(event.id & $0f)
             other:
-                ser.printf(@"unknown event %x\n\r", event.event_id)
-        _event_state := event.event_id & $f0
+                ser.printf(@"unknown event %x\n\r", event.id)
+        _event_state := event.id & $f0
     else
         case _event_state
             EVT_CTRL_CHANGE:
             EVT_NOTE_ON:
-                parse_note_on(event.event_id & $0f)
+                parse_note_on(event.id & $0f)
             EVT_NOTE_OFF:
-                parse_note_off(event.event_id & $0f)
+                parse_note_off(event.id & $0f)
 
-    return event.event_id
+    return event.id
 
 
 pub parse_ctrl_change(ch) | ctl, val
@@ -430,7 +459,7 @@ pub write_track_name(p_src, len, dt=0)
     iodev.wr_block(p_src, len)
 
 
-pri rd_vlq(): v | c
+pub rd_vlq(): v | c
 ' Read and decode a variable-length quantity from the file
 '   Returns:    decoded/decimal value
     v := iodev.rd_byte()
@@ -443,21 +472,6 @@ pri rd_vlq(): v | c
         while (c & $80)
 '    ser.printf(@"vlq in dec=%d\n\r", v)
     return v & $0fff_ffff
-
-
-pri swap24(i): o
-' Swap a 24-bit word's byte order
-    o.byte[0], o.byte[1], o.byte[2] := i.byte[2], i.byte[1], i.byte[0]
-
-
-pri swaplong(i): o
-' Swap a long's byte order
-    o.byte[0], o.byte[1], o.byte[2], o.byte[3] := i.byte[3], i.byte[2], i.byte[1], i.byte[0]
-
-
-pri swapword(i): o
-' Swap a word's byte order
-    o.byte[0], o.byte[1] := i.byte[1], i.byte[0]
 
 
 pri wr_vlq(val) | buffer
