@@ -119,6 +119,7 @@ pub bpp(): b
     return header.dib.bpp
 
 
+pub stride = bytes_per_line
 pub bytes_per_line(): b
 ' Get image bytes per line
 '   Returns:    bytes
