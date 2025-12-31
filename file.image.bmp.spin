@@ -1,6 +1,6 @@
 {
 ---------------------------------------------------------------------------------------------------
-    Filename:       file.image.bmp.spin2
+    Filename:       file.image.bmp.spin
     Description:    MS Windows BMP image file i/o
     Author:         Jesse Burt
     Started:        Apr 21, 2021
@@ -9,13 +9,12 @@
 ---------------------------------------------------------------------------------------------------
 }
 
-{Spin2_v45}
 
 con
 
     ' BMP header structure (14 bytes)           ' offset (dec)
     BMP_HEADER_SZ   = 14
-    struct bmp_header_s( ...
+    bmp_header_s( ...
         word hdr_magic, ...                     ' 0..1
         long size, ...                          ' 2..5
         word app_spec1, ...                     ' 6..7
@@ -24,7 +23,7 @@ con
 
     ' DIB header (BITMAPV5HEADER - 92)
     BITMAPV5HEADER_SZ   = 92
-    struct dib_bmv5header_s( ...
+    dib_bmv5header_s( ...
         long hdr_sz, ...                        ' 14..17
         long width, ...                         ' 18..21
         long height, ...                        ' 22..25
@@ -53,12 +52,13 @@ con
         long last_row )                         ' not part of header; points to start of
                                                 '   last row of the image
 
-    struct bmp_dibv5header_s(...
+    bmp_dibv5header_s(...
         bmp_header_s        bmp, ...
         dib_bmv5header_s    dib)
 
     COLORTABLE_ENTRIES  = 256
-    struct colortable_s(...
+    COLORTABLE_ENTRY_SZ = 4
+    colortable_s(...
         byte blue, ...
         byte green, ...
         byte red, ...
@@ -183,11 +183,11 @@ pub read(p_bm): s | p, hsz
             'TODO
         124:                                    ' BITMAPV5HEADER
             ' read DIBv5 header
-            bytemove(@header.dib, p, sizeof(header.dib) )
+            bytemove(@header.dib, p, BITMAPV5HEADER_SZ)
             p += hsz
             if ( lookdown(bpp(): 1, 4, 8) )
                 ' 8bpp and lower images: read the colortable (count = 4 bytes * 2^bpp() )
-                bytemove(@colortable, p, sizeof(colortable) * decod( bpp() ) )
+                bytemove(@colortable, p, COLORTABLE_ENTRY_SZ * |<( bpp() ) )
             header.dib.p_bmp := p_bm
             header.dib.last_row := (header.bmp.img_start+header.dib.img_sz) - bytes_per_line()
 
