@@ -123,7 +123,10 @@ pub stride = bytes_per_line
 pub bytes_per_line(): b
 ' Get image bytes per line
 '   Returns:    bytes
-    return header.dib.width * (header.dib.bpp / 8)
+    if ( bpp() => 8 )
+        return header.dib.width * (header.dib.bpp / 8)
+    else
+        return header.dib.width / (8 / header.dib.bpp)
 
 
 pub color_profile(): p
