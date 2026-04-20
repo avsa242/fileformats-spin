@@ -4,8 +4,8 @@
     Description:    Musical Instrument Digital Interface file parsing, I/O
     Author:         Jesse Burt
     Started:        Feb 3, 2025
-    Updated:        Dec 21, 2025
-    Copyright (c) 2025 - See end of file for terms of use.
+    Updated:        Apr 20, 2026
+    Copyright (c) 2026 - See end of file for terms of use.
 ---------------------------------------------------------------------------------------------------
 }
 
@@ -51,19 +51,25 @@ con
         byte type, ...
         long length)    'xxx maybe long p_data too?
 
+    struct key_s(...
+        byte velocity, ...
+        byte voice)
+
     struct channel_s(...
+        long pitchbend_range, ...               ' float: semitones + max(cents, 99)
         word rpn, ...
         word data, ...
-        word freq, ...
-        long pitchbend_range)                   ' float: semitones + max(cents, 99)
+        key_s key[128], ...                     ' current velocity & voice(s) for each key
+        byte program, ...
+        byte pan)
 
     struct midifile_s(...
         long tempo, ...
         long smpte_fps, smpte_tpf, ...
         word format, ...
         word tracks, ...
-        word divisions, ...
-        channel_s channel[16])
+        word divisions)
+
 
     struct miditrack_s(...
         long start_pos, ...                     ' track start offset within file
@@ -95,8 +101,6 @@ con
     META_TYPE_KEY_SIG       = $59
     META_TYPE_SEQ_SPEC_META = $7f
 
-' temporary, for debugging output
-obj ser: "com.serial.terminal.ansi" | RX_PIN=34, TX_PIN=36, SER_BAUD=2_000_000
 
 var
 
@@ -106,15 +110,13 @@ var
 
     miditrack_s track[MAX_MIDI_TRACKS]
     midifile_s  this_file
+    channel_s   channel[16]
 
 
 pub set_iodev(^blkio_i p_obj)
 ' Set file I/O driver
 '   p_obj:  pointer to OBJ containing the API defined in the blkio interface above
     [iodev] := [p_obj]
-    ser.start()
-    ser.clear()
-    ser.strln(@"debug started")
 
 
 pub bpm2tempo(b): t
@@ -183,7 +185,6 @@ pub rd_event(^event_s event)
 '   event:  pointer to event_s structure
     event.delta := ticks2usec( rd_vlq() )
     event.id := iodev.rd_byte()
-    ser.printf(@"rd_event(): delta=%d id=%x\n\r", event.delta, event.id)
 
 
 var long _event_state
@@ -192,10 +193,8 @@ pub parse_event(^event_s event): t
 '   event:  pointer to event structure
 '    event.delta := ticks2usec( rd_vlq() )
 '    event.id := iodev.rd_byte()
-'    ser.printf(@"parse_event(): delta=%d id=%x\n\r", event.delta, event.id)
     ' is it a status byte?
     if ( (event.id >= $80) and (event.id <= $ff) )
-        ser.printf(@"\033[1;34mswitched event state to %0x\033[m\n\r", event.id)
         case event.id & $f0
             EVT_NOTE_OFF:
                 parse_note_off(event.id & $0f)
@@ -208,7 +207,6 @@ pub parse_event(^event_s event): t
             EVT_PITCHBEND_CHANGE:
                 parse_pitchbend_change(event.id & $0f)
             other:
-                ser.printf(@"unknown event %x\n\r", event.id)
         _event_state := event.id & $f0
     else
         case _event_state
@@ -224,10 +222,8 @@ pub parse_event(^event_s event): t
 pub parse_ctrl_change(ch) | ctl, val
 ' Parse controller change event
 '   ch: channel
-    ser.str(@"parse_ctrl_change() ")
     ctl := iodev.rd_byte()                            ' change controller to...
     val := iodev.rd_byte()                            '   value
-    ser.printf(@"ctl=%x  val=%x\n\r", ctl, val)
 
 
 pub parse_meta_event(^meta_evt_s meta_evt): t | p
@@ -236,7 +232,6 @@ pub parse_meta_event(^meta_evt_s meta_evt): t | p
     meta_evt.type := iodev.rd_byte()
     meta_evt.length := rd_vlq()
     bytefill(@buffer, 0, 100)
-    ser.printf(@"parse_meta_event(): type=%x len=%d\n\r", meta_evt.type, meta_evt.length)
     case meta_evt.type
         META_TYPE_SEQ_NR:
             iodev.rd_block(@buffer, meta_evt.length)
@@ -244,10 +239,8 @@ pub parse_meta_event(^meta_evt_s meta_evt): t | p
             iodev.rd_block(@buffer, meta_evt.length)
         META_TYPE_COPYRIGHT:
             iodev.rd_block(@buffer, meta_evt.length)
-            ser.printf(@" META_TYPE_COPYRIGHT: '%s'\n\r", @buffer)
         META_TYPE_SEQ_TRK_NAME:
             iodev.rd_block(@buffer, meta_evt.length)
-            ser.printf(@" META_TYPE_SEQ_TRK_NAME: '%s'\n\r", @buffer)
         META_TYPE_INSTR_NAME:
             iodev.rd_block(@buffer, meta_evt.length)
         META_TYPE_LYRIC:
@@ -278,7 +271,6 @@ pub parse_meta_event(^meta_evt_s meta_evt): t | p
 pub read_marker(p_dest, len)
 
     iodev.rd_block(p_dest, len <# BUFFER_SZ)
-    ser.printf(@"read_marker: '%s'\n\r", p_dest)
 
     if ( len > BUFFER_SZ )
         repeat len-BUFFER_SZ
@@ -289,25 +281,20 @@ pub parse_key_sig() | ksig, scl
 
     ksig := iodev.rd_byte() ' -7..7
     scl := iodev.rd_byte()  '0: major, 1: minor
-    ser.printf(@"parse_key_sig(): key: %d  scale: %d\n\r", ksig, scl)
 
 
 pub parse_note_off(ch) | k, v
 ' Parse note off event
 '   ch: channel
-    ser.printf(@"parse_note_off(%d) ", ch)
     k := iodev.rd_byte()                              ' note #
     v := iodev.rd_byte()                              ' value
-    ser.printf(@" k=%d v=%d\n\r", k, v)
 
 
 pub parse_note_on(ch) | k, v
 ' Parse note on event
 '   ch: channel
-    ser.printf(@"parse_note_on(%d) ", ch)
     k := iodev.rd_byte()
     v := iodev.rd_byte()
-    ser.printf(@" k=%d v=%d\n\r", k, v)
 
 
 pub parse_pitchbend_change(ch) | p
@@ -329,7 +316,6 @@ pub parse_tempo() | t
     iodev.rd_block(@t, 3)
     t := swap24(t)
     this_file.tempo := t
-    ser.printf(@"parse_tempo(): t=%d\n\r", t)
 
 pub parse_time_sig() | nn, dd, cc, bb
 ' Parse time-signature event
@@ -337,7 +323,6 @@ pub parse_time_sig() | nn, dd, cc, bb
     dd := iodev.rd_byte()
     cc := iodev.rd_byte()
     bb := iodev.rd_byte()
-    ser.printf(@"parse_time_sig(): nn=%x dd=%x cc=%x bb=%x\n\r", nn, dd, cc, bb)
 
 pub write_controller_change(ch, c, v, dt=0)
 '   ch:     channel
@@ -463,14 +448,11 @@ pub rd_vlq(): v | c
 ' Read and decode a variable-length quantity from the file
 '   Returns:    decoded/decimal value
     v := iodev.rd_byte()
-'    ser.printf(@"vlq %x ", v)
     if ( v & $80 )
         v &= $7f
         repeat
             v := (v << 7) | ( (c := iodev.rd_byte() ) & $7f)
-'            ser.printf(@"%x ", c)
         while (c & $80)
-'    ser.printf(@"vlq in dec=%d\n\r", v)
     return v & $0fff_ffff
 
 
@@ -496,7 +478,7 @@ pri wr_vlq(val) | buffer
 
 dat
 {
-Copyright 2025 Jesse Burt
+Copyright 2026 Jesse Burt
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
 associated documentation files (the "Software"), to deal in the Software without restriction,
