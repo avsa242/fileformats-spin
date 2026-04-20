@@ -1,0 +1,175 @@
+{                                                                                                       
+---------------------------------------------------------------------------------------------------
+    Filename:       file.audio.wav.spin2
+    Description:    WAV file metadata parser
+    Author:         Jesse Burt
+    Started:        Jun 28, 2025
+    Updated:        Apr 20, 2026
+    Copyright (c) 2026 - See end of file for terms of use.
+---------------------------------------------------------------------------------------------------
+}
+{
+    To use in your program:
+        1. Declare this object as a child object
+        2. Declare an instance of the wav_hdr_s struct
+        3. Copy the header (first 44 bytes) of your WAV file into the new `header` struct
+        4. Read the return value of `wav.header_valid(@header)`. A value of -1 (true) indicates the file
+            header data is valid (so, most likely a real WAV file)
+        5. Call other methods as needed, using a pointer to the header as the parameter
+            (e.g., `wav.sample_rate(@header)`, reading the return value.
+
+        ```
+        obj
+
+            wav:    "file.audio.wav.spin2"      ' this object
+
+
+        con
+
+            struct wav_hdr_s = wav.wav_hdr_s    ' import the struct definition from this file
+
+
+        var
+
+            wav_hdr_s   header                  ' declare an instance of the structure
+
+
+        pub main()
+
+            '...
+
+            bytemove(@header, @source_of_wav_header, 44)
+        ```
+} 
+{Spin2_v46}
+
+con
+
+    ' header offsets
+    HDR_RIFF            = 0
+    HDR_SIZE            = 4
+    HDR_DESC            = 8
+    HDR_FMT             = 12
+    HDR_SZ_WAV_CHUNK    = 16                    ' -- length of the following fields
+    HDR_WAV_TYPE        = 20
+    HDR_MONO_STEREO     = 22
+    HDR_SAMPLE_FREQ     = 24
+    HDR_AUDIO_RATE      = 28
+    HDR_BLK_ALIGN       = 32
+    HDR_SAMPLE_BITS     = 34                    ' --
+    HDR_DATA_DESC       = 36
+    HDR_SZ_DATA_CHUNK   = 40
+    AUDIO_DATA          = 44
+
+    RIFF_ASCII          = %"RIFF"               ' $46_46_49_52
+    WAVE_ASCII          = %"WAVE"               ' $45_56_41_57
+    FMT_ASCII           = %"fmt"                ' $74_6d_66
+    DATA_ASCII          = %"data"               ' $61_74_61_64
+
+    PCM                 = $01
+    MONO                = $01
+    STEREO              = $02
+
+    ' RIFF WAVEfmt header structure
+    struct wav_hdr_s(...
+        byte riff_hdr[4], ...
+        long size, ...
+        byte desc[4], ...
+        byte fmt_hdr[4], ...
+        long wav_chunk_sz, ...
+        word type, ...
+        word mono_stereo, ...
+        long sample_freq, ...
+        long audio_rate, ...
+        word blk_align, ...
+        word sample_bits, ...
+        byte data_desc[4], ...
+        long sz_data_chunk)
+
+
+pub null()
+' This is not a top-level object
+
+
+pub channels(^wav_hdr_s hdr): c
+' Get the number of channels per sample
+'   hdr:    pointer to wav_hdr_s struct
+
+    return hdr.mono_stereo
+
+
+pub data_rate(^wav_hdr_s hdr): r
+' Get the overall data rate of the WAV
+'   hdr:        pointer to wav_hdr_s struct
+'   Returns:    bytes per second
+
+    return sample_rate(@hdr) * sample_bytes(@hdr) * channels(@hdr)
+
+
+pub file_size(^wav_hdr_s hdr): s
+' Get size of the file minus 8 bytes (excludes RIFF + WAVE headers)
+'   hdr:    pointer to wav_hdr_s struct
+
+    return hdr.size
+
+
+pub header_valid(^wav_hdr_s hdr): v
+' Flag indicating header data is valid
+'   hdr:    pointer to wav_hdr_s struct
+
+    if ( (hdr.riff_hdr == RIFF_ASCII) and (hdr.desc == WAVE_ASCII) )
+        return true
+    else
+        return false
+
+
+pub is_stereo(^wav_hdr_s hdr): s
+' Flag indicating file is stereo
+'   hdr:    pointer to wav_hdr_s struct
+
+    return hdr.mono_stereo == STEREO
+
+
+pub sample_bits(^wav_hdr_s hdr): r
+' Get the sample resolution of the audio data
+'   hdr:    pointer to wav_hdr_s struct
+'   Returns: bits
+
+    return hdr.sample_bits
+
+
+pub sample_bytes(^wav_hdr_s hdr): b
+' Get the number of bytes per sample
+'   hdr:    pointer to wav_hdr_s struct
+
+    return hdr.sample_bits >> 3                 ' bits/8
+
+   
+pub sample_rate(^wav_hdr_s hdr): r
+' Get the sample rate of the audio data
+'   hdr:    pointer to wav_hdr_s struct
+'   Returns: Hertz
+
+    return hdr.sample_freq
+
+
+dat
+{   
+Copyright 2026 Jesse Burt                                                                               
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+    
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+}
+
