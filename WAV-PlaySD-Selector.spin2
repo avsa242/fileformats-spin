@@ -1,0 +1,238 @@
+{
+----------------------------------------------------------------------------------------------------
+    Filename:       WAV-PlaySD-Selector.spin2
+    Description:    WAV file player
+        * playback from SD
+        * terminal-based file selection
+    Author:         Jesse Burt
+    Started:        Apr 20, 2026
+    Updated:        Apr 25, 2026
+    Copyright (c) 2026 - See end of file for terms of use.
+----------------------------------------------------------------------------------------------------
+}
+{Spin2_v46}
+
+con
+
+    _clkfreq    = 180_000_000
+    _xtlfreq    = 20_000_000
+
+' -- User-defined constants
+    ' audio pins
+    AUD_L       = 24+6
+    AUD_R       = 24+7
+
+' --
+
+    BUFSZ       = 256
+    BUFMASK     = BUFSZ-1
+
+    ' playback cog states
+    #0, IDLE, PLAYING
+
+
+obj
+
+    ser:    "com.serial.terminal.ansi"
+    dac:    "signal.dac.audio"                  ' audio DAC
+    wav:    "file.audio.wav"                    ' WAV file metadata parser/extractor
+    libc:   "libc"                              ' libc wrapper (vfs, etc)
+    fsa:    "fsadapter.c"                       ' dirent data extraction
+
+
+con
+
+    struct wav_hdr_s = wav.wav_hdr_s
+    struct dirent_s(...
+        byte name[8+1+3+1])                     ' "NAME", ".", "EXT", 0
+
+
+var
+
+    wav_hdr_s wav_file
+    dirent_s dirents[32]
+
+    ' audio ring_buffer
+    word _head, _tail
+    byte _buffer[BUFSZ]
+
+    byte path_tmp[17]
+
+    byte _state
+
+
+pub main() | dir, enr, entry, se, e, nl, cmd
+
+    ser.start()
+    ser.clear()
+
+    cogspin(NEWCOG, cog_play(), @play_stk)      ' start the audio player/DAC
+
+    libc.mount(@"/sd", libc._vfs_open_sdcard() )
+    dir := libc.opendir(@"/sd/")
+    if ( dir == libc.NULL )
+        ser.strln(@"error opening /sd/")
+        repeat
+
+    enr := 0
+
+    ' read directory
+    repeat
+        entry := libc.readdir(dir)
+        ifnot ( entry )
+            quit
+        bytefill(@dirents[enr].name, 0, sizeof(dirents.name) )
+        bytemove(@dirents[enr].name, fsa.dirent_name(entry), 8+1+3)
+        enr++
+
+    se := 0
+    repeat
+        ser.clear()
+        ser.pos_xy(0, 0)
+        ser.strln(@"Keys:")
+        ser.strln(@"w:      move up one file in the list")
+        ser.strln(@"s:      move down one file in the list")
+        ser.strln(@"space:  play the currently highlighted file")
+        ser.newline()
+
+        repeat enr with e
+            if ( e == se )                      ' highlight the currently selected entry
+                ser.inverse()
+            ser.printf(@"%s\n\r", @dirents[e].name)
+            ser.inverse_off()
+
+        nl := strsize(@dirents[se].name)
+        cmd := ser.getchar()
+        case cmd
+            "w":                                ' move up one file
+                se := (se-1) #> 0
+            "s":                                ' move down one file
+                se := (se+1) <# enr-1
+            " ":                                ' play the currently selected file
+                if ( strcomp(@dirents[se].name+(nl-3), @"WAV") )
+                    play_wav( fullpath(@dirents[se].name) )
+
+
+pub fullpath(fname)
+' Get the full pathname of a file (device mount point + filename)
+'   Returns: string
+
+    bytefill(@path_tmp, 0, 17)
+    bytemove(@path_tmp, @"/sd/", 4)
+    bytemove(@path_tmp+4, fname, strsize(fname) )
+    return @path_tmp
+
+
+pub play_wav(fname) | f, rdsz, rd
+
+    ' open the WAV file
+    f := libc.fopen(fname, @"rb")
+    ifnot ( f )
+        ser.strln(@"error opening")
+        return
+
+    ' read the WAV file _header and verify it's really a WAV
+    libc.fseek(f, 0, libc.SEEK_SET)
+    wav_file~
+    libc.fread(@wav_file, sizeof(wav_hdr_s), 1, f)
+
+    ifnot ( wav.header_valid(@wav_file) )
+        ser.strln(@"error: wav file corrupt")
+        return
+
+    ser.printf(@"wav file size %d", wav.file_size(@wav_file) )
+    ser.clear_line()
+    ser.newline()
+    ser.printf(@"%dHz, %dbits, %s\n\r", wav.sample_rate(@wav_file), ...
+                                        wav.sample_bits(@wav_file), ...
+                                        ( wav.is_stereo(@wav_file) ) ? @"stereo" : @"mono" )
+    ser.clear_line()
+    ser.newline()
+
+    rdsz := wav.sample_bytes(@wav_file) * wav.channels(@wav_file)
+    _state := PLAYING
+
+    _head := _tail := 0
+
+    ser.str(@"playing...")
+
+    ' fill the audio _buffer
+    repeat
+        if ( ( (_tail-_head-1) & BUFMASK) > rdsz )' make sure there's enough space free in the _buffer
+            rd := libc.fread(@_buffer+_head, rdsz, 1, f)
+            _head := (_head + rdsz) & BUFMASK
+        else
+            next
+        if ( rd <= 0 )                          ' end of file
+            quit
+
+    _state := IDLE
+
+    libc.fclose(f)
+    ser.pos_x(0)
+    ser.clear_line()
+
+
+var long play_stk[100]
+pub cog_play() | sfmt
+' Audio playback cog
+    repeat
+        case_fast _state
+            IDLE:
+            PLAYING:
+                ' start the DAC at the sample rate of the loaded WAV
+                dac.start_linelevel_2ch(AUD_L, AUD_R, wav.sample_rate(@wav_file) )
+
+                ' make a bitfield out of the sample format to determine which DAC playback routine
+                '   to use
+                sfmt.[0] := (wav.sample_bits(@wav_file) == 16) ? 1 : 0
+                sfmt.[1] := (wav.is_stereo(@wav_file) ) ? 1: 0
+
+                case sfmt
+                    %00:                        ' mono, 8-bit
+                        repeat while _state == PLAYING
+                            if ( ((_head-_tail) & BUFMASK) > 32 )
+                                dac.output8_2ch_mono(_buffer[_tail])
+                                _tail := (_tail + 1 ) & BUFMASK
+
+                    %01:                        ' mono, 16-bit
+                        repeat while _state == PLAYING
+                            if ( ((_head-_tail) & BUFMASK) > 32 )
+                                dac.output16_2ch_mono(_buffer[_tail] | (_buffer[_tail+1] << 8) )
+                                _tail := (_tail + 2) & BUFMASK
+
+                    %10:                        ' stereo, 8-bit
+                        repeat while _state == PLAYING
+                            if ( ((_head-_tail) & BUFMASK) > 32 )
+                                dac.output8_2ch_stereo(_buffer[_tail+0], _buffer[_tail+1])
+                                _tail := (_tail + 2) & BUFMASK
+
+                    %11:                        ' stereo, 16-bit
+                        repeat while _state == PLAYING
+                            if ( ((_head-_tail) & BUFMASK) > 32 )
+                                dac.output16_2ch_stereo(_buffer[_tail+0] | (_buffer[_tail+1] << 8), ...
+                                                        _buffer[_tail+2] | (_buffer[_tail+3] << 8) )
+                                _tail := (_tail + 4) & BUFMASK
+                dac.stop()
+
+
+dat
+{   
+Copyright 2026 Jesse Burt
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and
+associated documentation files (the "Software"), to deal in the Software without restriction,
+including without limitation the rights to use, copy, modify, merge, publish, distribute,
+sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+    
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT
+OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+}
+
